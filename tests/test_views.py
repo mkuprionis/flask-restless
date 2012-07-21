@@ -901,7 +901,7 @@ class ExtendedAPITestCase(TestSupportPrefilled):
                 else:
                     return True
                 
-            def _before_post(self, model):
+            def _before_post(self, model, params):
                 """Only user with id 1 has permissions to create computers"""
                 if self.current_user_id != 1:
                     return jsonify_status_code(401)
@@ -965,7 +965,7 @@ class ExtendedAPITestCase(TestSupportPrefilled):
         response = self.app.delete('/api/computer/1')
         self.assertEqual(response.status_code, 204)
         
-        # Don't allow to update computer not owned
+        # Don't allow to delete computer not owned
         response = self.app.delete('/api/computer/2')
         self.assertEqual(response.status_code, 401)
         
@@ -976,9 +976,17 @@ class ExtendedAPITestCase(TestSupportPrefilled):
         # Don't Allow user #2 to create computers
         ComputerAPI.current_user_id = 2
         cnt = self.session.query(self.Computer).count()
-        response = self.app.post('/api/computer', data=json.dumps({'name': u'HP','vendor': 'Latitude','owner_id': 1}))
+        response = self.app.post('/api/computer', data=json.dumps({
+                                                                   'name': u'HP',
+                                                                   'vendor': u'Latitude',
+                                                                   'owner': {'name': u'Joe'}
+                                                                   })) 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(cnt, self.session.query(self.Computer).count())
+        
+        # If computer creation was not allowed, don't allow to create owner as well (as related record)
+        owner = self.session.query(self.Person).filter_by(name=u'Joe').first()
+        self.assertEqual(owner, None)
         
     def test_before_hooks_can_modify_request_params(self):
         class ComputerAPI(API):
@@ -998,7 +1006,7 @@ class ExtendedAPITestCase(TestSupportPrefilled):
                 
                 return True
                 
-            def _before_post(self, model):
+            def _before_post(self, model, params):
                 """Set current user as owner"""
                 model.owner_id = self.current_user_id
                 return True
@@ -1045,7 +1053,7 @@ class ExtendedAPITestCase(TestSupportPrefilled):
     def test_after_action_hooks_can_return_custom_response(self):
         class ComputerAPI(API):
             
-            def _after_search(self, model, data, page_num=None):
+            def _after_search(self, model, data):
                 return jsonify({'foo': 'bar'})
             
             def _after_get(self, result, data):
@@ -1085,7 +1093,7 @@ class ExtendedAPITestCase(TestSupportPrefilled):
     def test_after_action_hooks_can_modify_response(self):
         class ComputerAPI(API):
             
-            def _after_search(self, model, data, page_num=None):
+            def _after_search(self, model, data):
                 data['foo'] = 'bar'
                 return True
             

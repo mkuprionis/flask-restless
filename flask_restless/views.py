@@ -455,12 +455,13 @@ class API(ModelView):
     """
     Extension hooks. Child classes should override these.
     """
-    def _after_search(self, result, data, page_num=None):
+    def _after_search(self, result, data):
         """
         `result` will be a single model if such parameter was passed to `search()`
                  and a list otherwise.
         `data` is serialized result ready to be jsonified
-        `page_num` will be `None` if single result is being returned
+               - For single model search this will be the model found
+               - For many model search this will be `{objects: <list of objects found>, page: <page_number>}`
         """
         return True
     
@@ -485,7 +486,7 @@ class API(ModelView):
     def _before_get(self, model):
         return True
     
-    def _before_post(self, model):
+    def _before_post(self, model, params):
         return True
     
     def _before_patch(self, query, data):
@@ -814,11 +815,13 @@ class API(ModelView):
         objects = [_to_dict_include(x, deep, include=self.include_columns)
                    for x in instances[start:end]]
         
-        proceed = self._after_search(instances, objects, page_num)
+        data = {'objects': objects, 'page': page_num}
+        
+        proceed = self._after_search(instances, data)
         if proceed != True:
             return proceed
         
-        return jsonify(page=page_num, objects=objects)
+        return jsonify(data)
 
     def _check_authentication(self):
         """If the specified HTTP method requires authentication (see the
@@ -963,7 +966,11 @@ class API(ModelView):
             modelargs = dict([(i, params[i]) for i in props])
             # HACK Python 2.5 requires __init__() keywords to be strings.
             instance = self.model(**unicode_keys_to_strings(modelargs))
-
+            
+            proceed = self._before_post(instance, params)
+            if proceed != True:
+                return proceed
+            
             # Handling relations, a single level is allowed
             for col in set(relations).intersection(paramkeys):
                 submodel = cols[col].property.mapper.class_
@@ -980,10 +987,6 @@ class API(ModelView):
                     subinst = _get_or_create(self.session, submodel, **kw)[0]
                     setattr(instance, col, subinst)
 
-            proceed = self._before_post(instance)
-            if proceed != True:
-                return proceed
-            
             # add the created model to the session
             self.session.add(instance)
             self.session.commit()
